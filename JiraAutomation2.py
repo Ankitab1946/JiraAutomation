@@ -1,52 +1,41 @@
-from jira import JIRA
+import requests
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# ---------- CONFIG ----------
-JIRA_URL = "https://jira.mycompany.com"          # Your Jira Server URL
-PAT_TOKEN = "YOUR_PAT_HERE"                     # Personal Access Token
-PROJECTS = ["PROJ1", "PROJ2", "PROJ3"]          # Jira project keys
-JQL = f'project in ({",".join(PROJECTS)})'      # Filter issues across projects
-# ----------------------------
+JIRA_URL = "https://jira.mycompany.com"
+PAT_TOKEN = "YOUR_PAT_HERE"
+PROJECTS = ["PROJ1","PROJ2","PROJ3"]
 
-# 1. Connect to Jira using Bearer token via custom headers
-jira = JIRA(
-    server=JIRA_URL,
-    options={"server": JIRA_URL},
-    headers={"Authorization": f"Bearer {PAT_TOKEN}"}
-)
+# JQL search
+jql = f'project in ({",".join(PROJECTS)})'
+url = f"{JIRA_URL}/rest/api/2/search"
+headers = {"Authorization": f"Bearer {PAT_TOKEN}"}
 
-# 2. Get all issues across projects
-issues = jira.search_issues(JQL, maxResults=False)
+resp = requests.get(url, headers=headers, params={"jql": jql, "maxResults": 500})
+issues = resp.json().get("issues", [])
 
-# 3. Extract dependencies into a DataFrame
 rows = []
 for issue in issues:
-    for link in getattr(issue.fields, 'issuelinks', []):
+    for link in issue['fields'].get('issuelinks', []):
         link_type = None
         linked_key = None
-        if hasattr(link, "outwardIssue"):   # outward (blocks)
-            link_type = link.type.outward
-            linked_key = link.outwardIssue.key
-        elif hasattr(link, "inwardIssue"):  # inward (is blocked by)
-            link_type = link.type.inward
-            linked_key = link.inwardIssue.key
-
+        if 'outwardIssue' in link:
+            link_type = link['type']['outward']
+            linked_key = link['outwardIssue']['key']
+        elif 'inwardIssue' in link:
+            link_type = link['type']['inward']
+            linked_key = link['inwardIssue']['key']
         if linked_key:
             rows.append({
-                "SourceIssue": issue.key,
+                "SourceIssue": issue['key'],
                 "LinkType": link_type,
                 "TargetIssue": linked_key
             })
 
 df = pd.DataFrame(rows)
-
-# 4. Show the table
-print("Dependency Data Model:")
 print(df.head())
 
-# 5. Build a network graph of dependencies
 G = nx.DiGraph()
 for _, row in df.iterrows():
     G.add_edge(row['SourceIssue'], row['TargetIssue'], label=row['LinkType'])
