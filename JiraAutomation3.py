@@ -1,39 +1,45 @@
-#interdependent
-
 import requests
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 
 # -------- CONFIG --------
-JIRA_URL = "https://your-domain.atlassian.net"  # Jira Cloud or Server base URL
+JIRA_URL = "https://your-domain.atlassian.net"  # Jira base URL
 EMAIL = "your.email@example.com"               # Jira login email
-API_TOKEN = "your_api_token_here"              # Create at https://id.atlassian.com/manage/api-tokens
-PROJECTS = ["PROJ1", "PROJ2", "PROJ3"]         # Project keys to include
+API_TOKEN = "your_api_token_here"              # API token (https://id.atlassian.com/manage/api-tokens)
+
+# Build your JQL filter:
+# All issues from PROJ1, and only PROJ2 where Team[Dropdown] = 6785
+jql = '(project = PROJ1) OR (project = PROJ2 AND "Team[Dropdown]" = 6785)'
 # ------------------------
 
-# 1. Build JQL and call the REST API directly
-jql = f'project in ({",".join(PROJECTS)})'
 search_url = f"{JIRA_URL}/rest/api/2/search"
 
-# get all issues (handle pagination)
-start = 0
-max_results = 100
+# 1. Fetch all issues (with pagination)
 all_issues = []
+start_at = 0
+max_results = 100  # can be up to 1000 on Server
 while True:
-    params = {"jql": jql, "startAt": start, "maxResults": max_results}
-    resp = requests.get(search_url,
-                        params=params,
-                        auth=(EMAIL, API_TOKEN),
-                        headers={"Accept": "application/json"})
+    params = {
+        "jql": jql,
+        "startAt": start_at,
+        "maxResults": max_results,
+        "fields": "issuelinks"  # only fetch needed field
+    }
+    resp = requests.get(
+        search_url,
+        params=params,
+        auth=(EMAIL, API_TOKEN),
+        headers={"Accept": "application/json"}
+    )
     resp.raise_for_status()
     data = resp.json()
     issues = data.get("issues", [])
     if not issues:
         break
     all_issues.extend(issues)
-    start += len(issues)
-    if start >= data['total']:
+    start_at += len(issues)
+    if start_at >= data['total']:
         break
 
 print(f"Fetched {len(all_issues)} issues")
@@ -58,7 +64,7 @@ for issue in all_issues:
         if linked_key:
             tgt_proj = linked_key.split("-")[0]
 
-            # only inter-project links
+            # Only inter-project links
             if tgt_proj != src_proj:
                 rows.append({
                     "SourceIssue": src_key,
